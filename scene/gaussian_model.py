@@ -99,6 +99,31 @@ class GaussianModel:
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
 
+    def combine(self, model_args):
+        (active_sh_degree, 
+        xyz, 
+        features_dc, 
+        features_rest,
+        scaling, 
+        rotation, 
+        opacity,
+        max_radii2D, 
+        xyz_gradient_accum, 
+        denom,
+        opt_dict, 
+        spatial_lr_scale) = model_args
+
+        self.active_sh_degree += active_sh_degree
+        self._xyz += xyz
+        self._features_dc += features_dc
+        self._features_rest += features_rest
+        self._scaling += scaling
+        self._rotation += rotation
+        self._opacity += opacity
+        self.max_radii2D += max_radii2D
+
+        
+
     @property
     def get_scaling(self):
         return self.scaling_activation(self._scaling)

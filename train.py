@@ -11,6 +11,8 @@
 
 import os
 import torch
+import numpy as np
+from PIL import Image
 from random import randint
 from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render, network_gui
@@ -40,7 +42,7 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, dataset2):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -48,11 +50,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    scene = Scene(dataset, gaussians)
+    gaussians2 = GaussianModel(dataset2.sh_degree, opt.optimizer_type)
+    scene = Scene(dataset, gaussians, shuffle=False)
+    scene2 = Scene(dataset2, gaussians2, shuffle=False)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
+    # (model_params, first_iter) = torch.load()
+    # gaussians2.restore(model_params, opt)
+    # gaussians2.load_ply('./output/vangogh0/point_cloud/iteration_30000/point_cloud.ply')
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -64,6 +71,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     viewpoint_stack = scene.getTrainCameras().copy()
+    viewpoint_stack2 = scene2.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
@@ -97,17 +105,24 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
+            viewpoint_stack2 = scene2.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
+        viewpoint_cam2 = viewpoint_stack2.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
 
         # Render
         if (iteration - 1) == debug_from:
             pipe.debug = True
 
+        gt_image_og = viewpoint_cam2.original_image.cuda().detach()
+        background = gt_image_og
+
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+
+        # print(gaussians.get_xyz.shape)
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
@@ -117,6 +132,51 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
+        # print(image.shape)
+        # print(gt_image.shape)
+        # img = Image.fromarray(viewpoint_cam.original_image.transpose(0,2).transpose(0,1).cpu().numpy() * 255, 'RGB')
+        # img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+        # img.show()
+        # img.save('test.png')
+        # img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+        # img.save('image.png')
+        # img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+        # img.save('gt_image.png')
+        # exit()
+        # img = Image.fromarray(gt_image_og.transpose(0,2).transpose(0,1).cpu().numpy(), 'RGB')
+        # img2 = Image.fromarray(image.transpose(0,2).transpose(0,1).cpu().detach().numpy(), 'RGB')
+        # img.save('og.png')
+        # img2.save('out.png')
+        # exit()
+        # print(image[:,0,0], image[:,400,800])
+        # print(np.nonzero(image))
+        # print(image == 0)
+        # print(image.flatten(1)[:,0])
+        # print(torch.isclose(image.flatten(1)[0,0],torch.tensor(0.)))
+        # z = torch.tensor((0.,0.,0.)).cuda()
+        # for i,x in enumerate(image.transpose(0,2)):
+        #     for j,y in enumerate(x):
+        #         # print(torch.isclose(y, z))
+        #         if torch.all(torch.isclose(y, z)):
+        #             image[:,i,j] = gt_image_og[:,i,j]
+        #             print("here",i,j)
+
+        # print(torch.isclose(image.flatten(1).transpose(0,1),bg))
+        # print(torch.isclose(image.flatten(1).transpose(0,1),bg).shape)
+        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1))
+        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).shape)
+        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1).shape)
+        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1))
+        # image[torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1))[0]] = gt_image_og.detach()
+        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1).shape)
+        # print(torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=0))[0])
+        # print(torch.where(image.flatten(1).isclose(torch.tensor(0.)).all(dim=1))[0])
+        # image[torch.where(~image.any(axis=0)[0])] = gt_image_og.detach()
+        # image[np.where] = gt_image_og.detach()
+        # image2 = gt_image_og.detach()[np.nonzero(image)] = image
+        # image = image2
+        # image = torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1),gt_image_og,image+gt_image_og)
+        # image += gt_image_og.detach()
         Ll1 = l1_loss(image, gt_image)
         if FUSED_SSIM_AVAILABLE:
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
@@ -149,7 +209,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
 
             if iteration % 10 == 0:
-                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
+                progress_bar.set_postfix({"Count": f"{gaussians.get_xyz.shape[0]}", "Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
@@ -157,6 +217,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
+                img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+                img.save('image.png')
+                img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+                img.save('gt_image.png')
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
@@ -261,8 +325,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_000, 2_000, 3_000, 7_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000, 2_000, 3_000, 7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -279,7 +343,8 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, lp.extract(args2))
 
     # All done
     print("\nTraining complete.")
