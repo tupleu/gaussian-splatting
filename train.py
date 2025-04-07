@@ -118,6 +118,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         gt_image_og = viewpoint_cam2.original_image.cuda().detach()
         background = gt_image_og
+        # background = torch.zeros_like(gt_image_og, device="cuda")
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
@@ -217,10 +218,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
-                img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-                img.save('image.png')
-                img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-                img.save('gt_image.png')
+                # img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+                # img.save('image.png')
+                # img=Image.fromarray((gt_image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
+                # img.save('gt_image.png')
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
@@ -325,8 +326,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_000, 2_000, 3_000, 7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000, 2_000, 3_000, 7_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_000, 7_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000, 7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -343,7 +344,8 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
+    # args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
+    args2 = parser.parse_args(["-s", "./rpd/background"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, lp.extract(args2))
 
     # All done
