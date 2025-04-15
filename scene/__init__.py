@@ -27,6 +27,7 @@ class Scene:
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
+        self.output_path = args.output_path
         self.loaded_iter = None
         self.gaussians = gaussians
 
@@ -49,7 +50,7 @@ class Scene:
             assert False, "Could not recognize scene type!"
 
         if not self.loaded_iter:
-            with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
+            with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.output_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
             json_cams = []
             camlist = []
@@ -59,7 +60,7 @@ class Scene:
                 camlist.extend(scene_info.train_cameras)
             for id, cam in enumerate(camlist):
                 json_cams.append(camera_to_JSON(id, cam))
-            with open(os.path.join(self.model_path, "cameras.json"), 'w') as file:
+            with open(os.path.join(self.output_path, "cameras.json"), 'w') as file:
                 json.dump(json_cams, file)
 
         if shuffle:
@@ -79,18 +80,19 @@ class Scene:
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), args.train_test_exp)
+            self.gaussians.set_exposure(scene_info.train_cameras)
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
     def save(self, iteration):
-        point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
+        point_cloud_path = os.path.join(self.output_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
         exposure_dict = {
             image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
             for image_name in self.gaussians.exposure_mapping
         }
 
-        with open(os.path.join(self.model_path, "exposure.json"), "w") as f:
+        with open(os.path.join(self.output_path, "exposure.json"), "w") as f:
             json.dump(exposure_dict, f, indent=2)
 
     def getTrainCameras(self, scale=1.0):

@@ -44,9 +44,15 @@ def images_to_video(image_folder, output_video_path, fps=30):
 # except:
 #     pass
 
-try:
-    for i in range(1100):
-            shutil.copy(f'./rpd_output/rpd{(i%50)+1}/{str(int(i//12)%22).zfill(5)}.png',f'./rpd_render/{i}.png')
-except:
-    pass
-# images_to_video('./rpd_render', './rpd2.mp4',24)
+# try:
+#     for i in range(1100):
+#             shutil.copy(f'./output/rpd{(i%50)+1}/{str(int(i//12)%22).zfill(5)}.png',f'./rpd_render/{i}.png')
+# except:
+#     pass
+
+# try:
+#     for i in range(169):
+#             shutil.copy(f'./output/rpd/frame{i:0>6}/image0.png',f'./rpd_output/{i}.png')
+# except:
+#     pass
+images_to_video('./rpd_output', './rpd.mp4',24)

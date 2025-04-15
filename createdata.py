@@ -13,7 +13,7 @@ args = parser.parse_args()
 colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_executable) > 0 else "colmap"
 magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_executable) > 0 else "magick"
 
-for i in range(68):
+for i in range(143,169):
     cur_dir = f"frame{i:0>6}"
     os.makedirs(f'{args.source_path}/{cur_dir}/input/', exist_ok=True)
     shutil.copytree(f'{args.source_path}/background/distorted',f'{args.source_path}/{cur_dir}/distorted')

@@ -158,6 +158,14 @@ class GaussianModel:
     def get_exposure(self):
         return self._exposure
 
+    def set_exposure(self,cam_infos):
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        self.pretrained_exposures = None
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+
     def get_exposure_from_name(self, image_name):
         if self.pretrained_exposures is None:
             return self._exposure[self.exposure_mapping[image_name]]
