@@ -46,7 +46,7 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, scene2, load_iter):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, scene2, load_iter, use_bg):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -121,8 +121,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             pipe.debug = True
 
         gt_image_og = viewpoint_cam2.original_image.cuda().detach()
-        background = gt_image_og
-        # background = torch.zeros_like(gt_image_og, device="cuda")
+        if use_bg:
+            background = gt_image_og
+        else:
+            background = torch.zeros_like(gt_image_og, device="cuda")
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
@@ -220,7 +222,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, pipe, (1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp, scene2)
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, pipe, (1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp, scene2, use_bg)
             # quit()
             if (iteration in saving_iterations):
                 # img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
@@ -281,7 +283,7 @@ def prepare_output_and_logger(args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, pipe, renderArgs, train_test_exp, scene2):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, pipe, renderArgs, train_test_exp, scene2, use_bg):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -290,25 +292,28 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
-        validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
-                              {'name': 'train', 'og' :[scene2.getTrainCameras()[idx % len(scene2.getTrainCameras())] for idx in range(0, 23, 1)],
-                                    'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(0, 23, 1)]})
+        validation_configs = ({'name': 'test', 'cameras' : [scene.getTestCameras()[idx % len(scene.getTestCameras())] for idx in range(0, 1, 1)]}, 
+                              {'name': 'train', 'og' :[scene2.getTrainCameras()[idx % len(scene2.getTrainCameras())] for idx in range(0, 4, 1)],
+                                    'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(0, 4, 1)]})
 
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    viewpoint_cam2 = config['og'][idx]
-                    gt_image_og = viewpoint_cam2.original_image.cuda().detach()
-                    # background = gt_image_og
-                    # background = torch.zeros_like(gt_image_og, device="cuda")
-                    background = backgrounds[idx]
+                    if use_bg:
+                        if config['name'] == 'train':
+                            background = train_backgrounds[idx]
+                        else:
+                            background = test_backgrounds[idx]
+                    else:
+                        gt_image = viewpoint.original_image.cuda().detach()
+                        background = torch.zeros_like(gt_image, device="cuda")
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, pipe, background, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    if idx == 0:
+                    if config['name'] == 'test' and idx == 0:
                         img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-                        img.save(os.path.join(args.output_path,'image0.png'))
+                        img.save(os.path.join(args.output_path,'000.png'))
                         # img=Image.fromarray((gt_image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
                         # img.save('gt_image.png')
                         # img=Image.fromarray((gt_image_og.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
@@ -331,11 +336,19 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 global l1test
                 global psnrtest
-                l1test = l1_test.cpu().numpy()
-                psnrtest = psnr_test.cpu().numpy()
+                global l1train
+                global psnrtrain
+                if config['name'] == 'test':
+                    l1test = l1_test.cpu().numpy()
+                    psnrtest = psnr_test.cpu().numpy()
+                else:
+                    l1train = l1_test.cpu().numpy()
+                    psnrtrain = psnr_test.cpu().numpy()
                 if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
+            # if use_bg:
+            #     break
 
         if tb_writer:
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
@@ -360,6 +373,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
 
+    args.eval = True
     args.densify_from_iter = 000
     args.densify_until_iter = 15_000
     args.iterations = 2_000
@@ -376,7 +390,7 @@ if __name__ == "__main__":
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     # args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
-    args2 = parser.parse_args(["-s", "./rpd/background"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
+    args2 = parser.parse_args(["-s", "./rpd/background", "--eval"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
     args2.output_path = './rpd/background'
     # args2 = parser.parse_args(["-s", "./rpd/frame000029"])
 
@@ -394,50 +408,63 @@ if __name__ == "__main__":
     gaussians2 = GaussianModel(lp.extract(args2).sh_degree, op.extract(args).optimizer_type)
     scene2 = Scene(lp.extract(args2), gaussians2, shuffle=False)
     load_iter = None
-    l1_list = []
-    psnr_list = []
+    train_l1_list = []
+    train_psnr_list = []
+    test_l1_list = []
+    test_psnr_list = []
     durations = []
-    backgrounds = []
+    train_backgrounds = []
+    test_backgrounds = []
     # model_path = './output/rpd0 with a undistorted'
 
-    # args = parser.parse_args(["-s", "./rpd/background"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
-    # args.model_path = './output/rpda/'
-    # load_iter = -1
-    # training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter)
-    # load_iter = -1
+    # args = parser.parse_args(["-s", "./rpd/background", "--eval", "--test_iterations", "30000", "--save_iterations", "30000"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
+    # args.output_path = "./output/background"
+    # training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter, use_bg=False)
+    # exit()
 
-    # load in image from rpda
-    for i in range(23):
-        backgrounds.append(torch.load(f'./background/background{i}.pt'))
+    # load in image from background
+    test_cams = [0, 1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 21, 22, 23, 23, 24, 25, 26]
+    for i in range(27):
+        if i in test_cams:
+            test_backgrounds.append(torch.load(f'./background/{i:0>3}.pt'))
+        else:
+            train_backgrounds.append(torch.load(f'./background/{i:0>3}.pt'))
 
+    count = 0
     for frame in frames:
         start_time = time.time()
         args.source_path = os.path.join(video_path, frame)
         # args.output_path = os.path.join(output_path, frame)
         # args.model_path = model_path
         args.output_path = './output/' + args.source_path
-        training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter)
+        training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter, use_bg=True)
         # load_iter = -1
         # model_path = args.output_path
         duration = time.time()-start_time
         print(f"Frame {frame} finished in {duration} seconds.")
-        l1_list.append(l1test)
-        psnr_list.append(psnrtest)
+        train_l1_list.append(l1train)
+        train_psnr_list.append(psnrtrain)
+        test_l1_list.append(l1test)
+        test_psnr_list.append(psnrtest)
         durations.append(duration)
         torch.cuda.empty_cache()
-        # if count == 1:
-        #     break
+        count += 1
+        if count == 3:
+            break
     # training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, lp.extract(args2))
     with open('results.txt', 'w') as f:
         for i in range(len(durations)):
-            f.write(f"{l1_list[i]} {psnr_list[i]} {durations[i]}\n")
-    plt.plot(l1_list)
-    plt.savefig('l1.png')
-    plt.close()
-    plt.plot(psnr_list)
-    plt.savefig('psnr.png')
-    plt.close()
+            f.write(f"{durations[i]} {train_l1_list[i]} {train_psnr_list[i]} {test_l1_list[i]} {test_psnr_list[i]}\n")
+    # plt.plot(train_l1_list)
+    # plt.savefig('l1.png')
+    # plt.close()
+    # plt.plot(train_psnr_list)
+    # plt.savefig('psnr.png')
+    # plt.close()
     plt.plot(durations)
+    plt.xlabel('Frame')
+    plt.ylabel('Seconds')
+    plt.title('Training Time')
     plt.savefig('duration.png')
     plt.close()
 

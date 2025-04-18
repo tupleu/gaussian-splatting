@@ -50,9 +50,9 @@ def images_to_video(image_folder, output_video_path, fps=30):
 # except:
 #     pass
 
-# try:
-#     for i in range(169):
-#             shutil.copy(f'./output/rpd/frame{i:0>6}/image0.png',f'./rpd_output/{i}.png')
-# except:
-#     pass
-images_to_video('./rpd_output', './rpd.mp4',24)
+try:
+    for i in range(169):
+            shutil.copy(f'./output/background/train/ours_30000/renders/{i:0>3}.pt',f'./background/{i+1:0>3}.pt')
+except:
+    pass
+# images_to_video('./rpd_output', './rpd.mp4',24)
