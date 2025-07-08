@@ -26,7 +26,7 @@ import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
-from arguments import ModelParams, PipelineParams, OptimizationParams
+from arguments import ModelParams, PipelineParams, OptimizationParams, get_combined_args
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -54,16 +54,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    # gaussians2 = GaussianModel(dataset2.sh_degree, opt.optimizer_type)
+
     scene = Scene(dataset, gaussians, load_iteration= load_iter, shuffle=False)
-    # scene2 = Scene(dataset2, gaussians2, shuffle=False)
-    gaussians.training_setup(opt)
+    gaussians.training_setup2(opt, gaussians2)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
-    # (model_params, first_iter) = torch.load()
-    # gaussians2.restore(model_params, opt)
-    # gaussians2.load_ply('./output/vangogh0/point_cloud/iteration_30000/point_cloud.ply')
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -121,10 +117,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             pipe.debug = True
 
         gt_image_og = viewpoint_cam2.original_image.cuda().detach()
-        if use_bg:
-            background = gt_image_og
-        else:
-            background = torch.zeros_like(gt_image_og, device="cuda")
+        # if use_bg:
+        #     background = gt_image_og
+        # else:
+        background = torch.zeros_like(gt_image_og, device="cuda")
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
@@ -132,6 +128,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # print(gaussians.get_xyz.shape)
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        # print(viewspace_point_tensor.shape)
+        # print(visibility_filter.shape)
+        # print(radii.shape)
+        # viewspace_point_tensor = viewspace_point_tensor[-gaussians._xyz.shape[0]:]
+        # visibility_filter = visibility_filter[-gaussians._xyz.shape[0]:]
+        # radii = radii[-gaussians._xyz.shape[0]:]
 
         if viewpoint_cam.alpha_mask is not None:
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
@@ -139,51 +141,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        # print(image.shape)
-        # print(gt_image.shape)
-        # img = Image.fromarray(viewpoint_cam.original_image.transpose(0,2).transpose(0,1).cpu().numpy() * 255, 'RGB')
-        # img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-        # img.show()
-        # img.save('test.png')
-        # img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-        # img.save('image.png')
-        # img=Image.fromarray((gt_image.cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-        # img.save('gt_image.png')
-        # exit()
-        # img = Image.fromarray(gt_image_og.transpose(0,2).transpose(0,1).cpu().numpy(), 'RGB')
-        # img2 = Image.fromarray(image.transpose(0,2).transpose(0,1).cpu().detach().numpy(), 'RGB')
-        # img.save('og.png')
-        # img2.save('out.png')
-        # exit()
-        # print(image[:,0,0], image[:,400,800])
-        # print(np.nonzero(image))
-        # print(image == 0)
-        # print(image.flatten(1)[:,0])
-        # print(torch.isclose(image.flatten(1)[0,0],torch.tensor(0.)))
-        # z = torch.tensor((0.,0.,0.)).cuda()
-        # for i,x in enumerate(image.transpose(0,2)):
-        #     for j,y in enumerate(x):
-        #         # print(torch.isclose(y, z))
-        #         if torch.all(torch.isclose(y, z)):
-        #             image[:,i,j] = gt_image_og[:,i,j]
-        #             print("here",i,j)
 
-        # print(torch.isclose(image.flatten(1).transpose(0,1),bg))
-        # print(torch.isclose(image.flatten(1).transpose(0,1),bg).shape)
-        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1))
-        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).shape)
-        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1).shape)
-        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1))
-        # image[torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1))[0]] = gt_image_og.detach()
-        # print(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1).shape)
-        # print(torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=0))[0])
-        # print(torch.where(image.flatten(1).isclose(torch.tensor(0.)).all(dim=1))[0])
-        # image[torch.where(~image.any(axis=0)[0])] = gt_image_og.detach()
-        # image[np.where] = gt_image_og.detach()
-        # image2 = gt_image_og.detach()[np.nonzero(image)] = image
-        # image = image2
-        # image = torch.where(torch.all(torch.isclose(image.flatten(1).transpose(0,1),bg),dim=1).reshape(image.shape[1],-1)[None,:,:].repeat(3,1,1),gt_image_og,image+gt_image_og)
-        # image += gt_image_og.detach()
         Ll1 = l1_loss(image, gt_image)
         if FUSED_SSIM_AVAILABLE:
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
@@ -301,14 +259,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    if use_bg:
-                        if config['name'] == 'train':
-                            background = train_backgrounds[idx]
-                        else:
-                            background = test_backgrounds[idx]
-                    else:
-                        gt_image = viewpoint.original_image.cuda().detach()
-                        background = torch.zeros_like(gt_image, device="cuda")
+                    gt_image = viewpoint.original_image.cuda().detach()
+                    background = torch.zeros_like(gt_image, device="cuda")
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, pipe, background, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if config['name'] == 'train' and idx == 0:
@@ -355,6 +307,29 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
+def get_combined_args(parser : ArgumentParser):
+    cmdlne_string = ['-m', './output/background_cb']
+    cfgfile_string = "Namespace()"
+    args_cmdline = parser.parse_args(cmdlne_string)
+
+    try:
+        cfgfilepath = os.path.join(args_cmdline.model_path, "cfg_args")
+        print("Looking for config file in", cfgfilepath)
+        with open(cfgfilepath) as cfg_file:
+            print("Config file found: {}".format(cfgfilepath))
+            cfgfile_string = cfg_file.read()
+    except TypeError:
+        print("Config file not found at")
+        pass
+    args_cfgfile = eval(cfgfile_string)
+
+    merged_dict = vars(args_cfgfile).copy()
+    for k,v in vars(args_cmdline).items():
+        if v != None:
+            merged_dict[k] = v
+    return Namespace(**merged_dict)
+
+
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
@@ -390,12 +365,25 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    # args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
-    args2 = parser.parse_args(["-s", "./cornellbox/background", "--eval"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
-    args2.output_path = './cornellbox/background'
-    # args2 = parser.parse_args(["-s", "./rpd/frame000029"])
 
-    # model_path = './rpd0'
+    parser2 = ArgumentParser(description="Testing script parameters")
+    model2 = ModelParams(parser2, sentinel=True)
+    pipeline2 = PipelineParams(parser2)
+    parser2.add_argument("--iteration", default=-1, type=int)
+    parser2.add_argument("--skip_train", action="store_true")
+    parser2.add_argument("--skip_test", action="store_true")
+    parser2.add_argument("--quiet", action="store_true")
+    args2 = get_combined_args(parser2)
+    args2.output_path = './cornellbox/background'
+    safe_state(args2.quiet)
+
+    dataset2 = model2.extract(args2)
+    gaussians2 = GaussianModel(dataset2.sh_degree)
+    scene2 = Scene(dataset2, gaussians2, load_iteration=args2.iteration, shuffle=False)
+    # gaussians2.load_ply('./output/background_cb/point_cloud/iteration_30000/point_cloud.ply')
+    # gaussians2.save_ply('./test.ply')
+    # exit()
+
     video_path = './cornellbox'
     sub_paths = os.listdir(video_path)
     pattern = re.compile(r'frame(\d+)')
@@ -403,11 +391,7 @@ if __name__ == "__main__":
         (item for item in sub_paths if pattern.match(item)),
         key=lambda x: int(pattern.match(x).group(1))
     )
-    # frames=frames[args.frame_start:args.frame_end]
-    # if args.frame_start==1:
-    #     args.load_iteration = args.first_load_iteration
-    gaussians2 = GaussianModel(lp.extract(args2).sh_degree, op.extract(args).optimizer_type)
-    scene2 = Scene(lp.extract(args2), gaussians2, shuffle=False)
+    
     load_iter = None
     train_l1_list = []
     train_psnr_list = []
@@ -416,6 +400,8 @@ if __name__ == "__main__":
     durations = []
     train_backgrounds = []
     test_backgrounds = []
+    # model_path = './output/rpd0 with a undistorted'
+
 
     # load in image from background
     test_cams = []

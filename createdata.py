@@ -13,13 +13,13 @@ args = parser.parse_args()
 colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_executable) > 0 else "colmap"
 magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_executable) > 0 else "magick"
 
-for i in range(100,169):
+for i in range(0,100):
     cur_dir = f"frame{i:0>6}"
     os.makedirs(f'{args.source_path}/{cur_dir}/input/', exist_ok=True)
     shutil.copytree(f'{args.source_path}/background/distorted',f'{args.source_path}/{cur_dir}/distorted')
     shutil.copytree(f'{args.source_path}/background/sparse',f'{args.source_path}/{cur_dir}/sparse')
-    for j in range(27):
-        shutil.copy(f'{args.source_path}/foreground/{i:0>4}.{j:0>3}.png',f'{args.source_path}/{cur_dir}/input/{j:0>3}.png')
+    # for j in range(26):
+    #     shutil.copy(f'{args.source_path}/foreground/{i:0>4}.{j:0>3}.png',f'{args.source_path}/{cur_dir}/input/{j:0>3}.png')
     
     img_undist_cmd = (colmap_command + " image_undistorter \
         --image_path " + args.source_path + f"/{cur_dir}/input \

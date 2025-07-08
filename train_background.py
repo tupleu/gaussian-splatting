@@ -46,7 +46,7 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, scene2, load_iter, use_bg):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, load_iter):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -75,7 +75,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     viewpoint_stack = scene.getTrainCameras().copy()
-    viewpoint_stack2 = scene2.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
@@ -109,22 +108,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
-            viewpoint_stack2 = scene2.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
-        viewpoint_cam2 = viewpoint_stack2.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
 
         # Render
         if (iteration - 1) == debug_from:
             pipe.debug = True
 
-        gt_image_og = viewpoint_cam2.original_image.cuda().detach()
-        if use_bg:
-            background = gt_image_og
-        else:
-            background = torch.zeros_like(gt_image_og, device="cuda")
+        gt_image_og = viewpoint_cam.original_image.cuda().detach()
+        background = torch.zeros_like(gt_image_og, device="cuda")
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
@@ -222,13 +216,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, pipe, (1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp, scene2, use_bg)
-            # quit()
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, pipe, (1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
-                # img=Image.fromarray((image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-                # img.save('image.png')
-                # img=Image.fromarray((gt_image.detach().cpu().numpy().transpose((1,2,0)) * 255).astype(np.uint8), 'RGB')
-                # img.save('gt_image.png')
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
@@ -283,7 +272,7 @@ def prepare_output_and_logger(args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, pipe, renderArgs, train_test_exp, scene2, use_bg):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, pipe, renderArgs, train_test_exp):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -301,14 +290,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    if use_bg:
-                        if config['name'] == 'train':
-                            background = train_backgrounds[idx]
-                        else:
-                            background = test_backgrounds[idx]
-                    else:
-                        gt_image = viewpoint.original_image.cuda().detach()
-                        background = torch.zeros_like(gt_image, device="cuda")
+                    gt_image = viewpoint.original_image.cuda().detach()
+                    background = torch.zeros_like(gt_image, device="cuda")
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, pipe, background, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if config['name'] == 'train' and idx == 0:
@@ -365,8 +348,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[600])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[600])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -376,7 +359,7 @@ if __name__ == "__main__":
     args.eval = True
     args.densify_from_iter = 000
     args.densify_until_iter = 15_000
-    args.iterations = 2000
+    args.iterations = 600
     args.output_path = './output/' + args.source_path
     args.save_iterations.append(args.iterations)
     args.test_iterations.append(args.iterations)
@@ -390,12 +373,7 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    # args2 = parser.parse_args(["-s", "./vangogh/vangogh0"])
-    args2 = parser.parse_args(["-s", "./cornellbox/background", "--eval"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
-    args2.output_path = './cornellbox/background'
-    # args2 = parser.parse_args(["-s", "./rpd/frame000029"])
 
-    # model_path = './rpd0'
     video_path = './cornellbox'
     sub_paths = os.listdir(video_path)
     pattern = re.compile(r'frame(\d+)')
@@ -403,11 +381,6 @@ if __name__ == "__main__":
         (item for item in sub_paths if pattern.match(item)),
         key=lambda x: int(pattern.match(x).group(1))
     )
-    # frames=frames[args.frame_start:args.frame_end]
-    # if args.frame_start==1:
-    #     args.load_iteration = args.first_load_iteration
-    gaussians2 = GaussianModel(lp.extract(args2).sh_degree, op.extract(args).optimizer_type)
-    scene2 = Scene(lp.extract(args2), gaussians2, shuffle=False)
     load_iter = None
     train_l1_list = []
     train_psnr_list = []
@@ -417,81 +390,8 @@ if __name__ == "__main__":
     train_backgrounds = []
     test_backgrounds = []
 
-    # load in image from background
-    test_cams = []
-                # 0,
-                # 1,
-                # 2,
-                # 3,
-                # 4,
-                # 5,
-                # 6,
-                # 7,
-                # 8,
-                # 9,
-                # 10,
-                # 11,
-                # 12,
-                # # 13,
-                # 14,
-                # # 15,
-                # 16,
-                # 17,
-                # 18,
-                # 19,
-                # 20,
-                # 21,
-                # 22,
-                # 23,
-                # 23,
-                # 24,
-                # 25,
-                # 26
-                # ]
-    for i in range(25):
-        if i in test_cams:
-            test_backgrounds.append(torch.load(f'./output/background_cb/train/ours_30000/renders/{i:0>3}.pt'))
-        else:
-            train_backgrounds.append(torch.load(f'./output/background_cb/train/ours_30000/renders/{i:0>3}.pt'))
-
-    count = 0
-    for frame in frames:
-        start_time = time.time()
-        args.source_path = os.path.join(video_path, frame)
-        # args.output_path = os.path.join(output_path, frame)
-        # args.model_path = model_path
-        args.output_path = './output/' + args.source_path
-        training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter, use_bg=True)
-        # load_iter = -1
-        # model_path = args.output_path
-        duration = time.time()-start_time
-        print(f"Frame {frame} finished in {duration} seconds.")
-        train_l1_list.append(l1train)
-        train_psnr_list.append(psnrtrain)
-        # test_l1_list.append(l1test)
-        # test_psnr_list.append(psnrtest)
-        durations.append(duration)
-        torch.cuda.empty_cache()
-        count += 1
-        # if count == 30:
-        #     break
-    # training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, lp.extract(args2))
-    with open('results.txt', 'w') as f:
-        for i in range(len(durations)):
-            # f.write(f"{durations[i]} {train_l1_list[i]} {train_psnr_list[i]} {test_l1_list[i]} {test_psnr_list[i]}\n")
-            f.write(f"{durations[i]} {train_l1_list[i]} {train_psnr_list[i]}\n")
-    plt.plot(train_l1_list)
-    plt.savefig('l1.png')
-    plt.close()
-    plt.plot(train_psnr_list)
-    plt.savefig('psnr.png')
-    plt.close()
-    plt.plot(durations)
-    plt.xlabel('Frame')
-    plt.ylabel('Seconds')
-    plt.title('Training Time')
-    plt.savefig('duration.png')
-    plt.close()
-
-    # All done
-    print("\nTraining complete.")
+    args = parser.parse_args(["-s", "./cornellbox/frame000000", "--test_iterations", "30000", "--save_iterations", "30000", "--iterations", "30000"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
+    args.output_path = "./output/background"
+    args.eval = False
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, load_iter)
+    exit()

@@ -365,8 +365,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[600])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[600])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -376,7 +376,7 @@ if __name__ == "__main__":
     args.eval = True
     args.densify_from_iter = 000
     args.densify_until_iter = 15_000
-    args.iterations = 2000
+    args.iterations = 600
     args.output_path = './output/' + args.source_path
     args.save_iterations.append(args.iterations)
     args.test_iterations.append(args.iterations)
@@ -416,6 +416,13 @@ if __name__ == "__main__":
     durations = []
     train_backgrounds = []
     test_backgrounds = []
+    # model_path = './output/rpd0 with a undistorted'
+
+    # args = parser.parse_args(["-s", "./cornellbox/frame000000", "--test_iterations", "30000", "--save_iterations", "30000", "--iterations", "30000"]) # rpda 29:44, distorted rpd0,16:48, undistorted 7:39
+    # args.output_path = "./output/background"
+    # args.eval = False
+    # training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, scene2, load_iter=load_iter, use_bg=False)
+    # exit()
 
     # load in image from background
     test_cams = []

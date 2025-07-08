@@ -81,7 +81,5 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    backgrounds = []
-    for i in range(25):
-        backgrounds.append(torch.load(f'./output/background_cb/train/ours_30000/renders/{i:0>3}.pt'))
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, SPARSE_ADAM_AVAILABLE, use_bg=True)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, SPARSE_ADAM_AVAILABLE, use_bg=False)
+    exit()
